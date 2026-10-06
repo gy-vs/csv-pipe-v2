@@ -12,18 +12,27 @@ const generate = (opts) => {
           state,
           1024,
           function (chunk) {
-            chunk = Buffer.from(chunk);
+            // `objectMode` emits records (arrays). Otherwise, `read` emits
+            // CSV chunks as strings: encode them to buffers unless an
+            // `encoding` is configured, in which case strings are emitted.
+            // This mirrors the Node.js stream behavior.
+            if (!options.objectMode && !options.encoding) {
+              chunk = Buffer.from(chunk);
+            }
             controller.enqueue(chunk);
           },
-          function () {
-            controller.close();
+          function (err) {
+            if (err) {
+              controller.error(err);
+            } else {
+              controller.close();
+            }
           },
         );
       },
     },
     { highWaterMark: 1024 },
   );
-  // return new Generator(options || {})
 };
 
 export { generate };

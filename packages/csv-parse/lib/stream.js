@@ -17,6 +17,14 @@ const parse = (opts) => {
         controller = ctr;
       },
       transform(chunk) {
+        // The parser works on bytes. Node.js streams convert any string
+        // chunk to a Buffer (decoded as UTF-8 by default, `decodeStrings`
+        // being enabled and the writable side set with `encoding: null`),
+        // replicate this behavior as Web Streams commonly emit strings,
+        // e.g. when piped after `TextDecoderStream`.
+        if (!Buffer.isBuffer(chunk)) {
+          chunk = Buffer.from(chunk);
+        }
         const error = api.parse(chunk, false, enqueue, terminate);
         if (error) {
           controller.error(error);

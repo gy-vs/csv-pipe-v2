@@ -39,4 +39,45 @@ describe("API Web Stream", function () {
       }
     });
   });
+
+  describe("types", function () {
+    type Product = { name: string; quantity: string };
+    type ChunksOf<S> = S extends ReadableStream<infer T> ? T : never;
+
+    it("infers string[] records without columns", function () {
+      const stream = parseStream();
+      const check: ChunksOf<(typeof stream)["readable"]> = [] as string[];
+      check;
+    });
+
+    it("infers object records with columns", function () {
+      const stream = parseStream<Product>({
+        columns: ["name", "quantity"],
+      });
+      const check: ChunksOf<(typeof stream)["readable"]> = {
+        name: "screw",
+        quantity: "3",
+      };
+      check;
+    });
+
+    it("accepts string chunks as input", function () {
+      // Compile-time only: a string stream pipes through without assertions
+      const source: ReadableStream<string> = new ReadableStream();
+      void source.pipeThrough(parseStream({ columns: true }));
+    });
+
+    it("pipes after a string ReadableStream without manual assertions", function () {
+      const source: ReadableStream<string> = new ReadableStream({
+        start(controller) {
+          controller.enqueue("a,b\n");
+          controller.enqueue("1,2\n");
+          controller.close();
+        },
+      });
+      const stream = source.pipeThrough(parseStream());
+      const check: ChunksOf<typeof stream> = [] as string[];
+      check;
+    });
+  });
 });

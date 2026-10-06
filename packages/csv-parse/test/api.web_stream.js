@@ -1,67 +1,123 @@
 import "should";
-import { generate as generateStream } from "csv-generate/stream";
 import { parse as parseStream } from "../lib/stream.js";
+import { CsvError } from "../lib/index.js";
 
-describe("api stream", function () {
-  it.skip("perf classic", async function () {
-    console.time("classic");
-    // TODO: implement
-    const generateClassic = () => {};
-    const generator = generateClassic({
-      objectMode: true,
-      length: 10000000,
+describe("API Web Stream", function () {
+  describe("stream/web/TransformStream", function () {
+    it("simple parse", async function () {
+      const stream = parseStream();
+      const writer = stream.writable.getWriter();
+      const reader = stream.readable.getReader();
+      await writer.write(Buffer.from("A,B,C\nD,E,F"));
+      await writer.close();
+      await reader.read().should.finally.eql({
+        done: false,
+        value: ["A", "B", "C"],
+      });
+      await reader.read().should.finally.eql({
+        done: false,
+        value: ["D", "E", "F"],
+      });
+      await reader.read().should.finally.eql({
+        done: true,
+        value: undefined,
+      });
     });
-    for await (const record of generator) {
-      record;
-      continue;
-    }
-    console.timeEnd("classic");
-  });
 
-  it.skip("perf stream", async function () {
-    console.time("stream");
-    const generator = generateStream({
-      objectMode: true,
-      length: 10000000,
+    it("cat error parse", async function () {
+      const stream = parseStream();
+      const writer = stream.writable.getWriter();
+      try {
+        await writer.write(Buffer.from("A,B,C\nD,E"));
+        await writer.close();
+        throw Error("Shall not be called");
+      } catch (err) {
+        if (!(err instanceof CsvError)) {
+          throw Error("Invalid error type");
+        }
+        err.code.should.eql("CSV_RECORD_INCONSISTENT_FIELDS_LENGTH");
+      }
     });
-    const reader = generator.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      value;
-      if (done) break;
-    }
-    // for await (const chunk of generator.getReader().read()) {
-    //   console.log(Buffer.from(chunk).toString());
-    // }
-    console.timeEnd("stream");
-  });
 
-  it("perf stream with iterator", async function () {
-    const generator = generateStream({
-      objectMode: false,
-      length: 5,
+    describe("string chunks", function () {
+      const collect = async (source, options) => {
+        const records = [];
+        const stream = source.pipeThrough(parseStream(options));
+        for await (const record of stream) {
+          records.push(record);
+        }
+        return records;
+      };
+
+      it("parses a single string chunk", async function () {
+        const records = await collect(ReadableStream.from(["a,b\n1,2\n"]));
+        records.should.eql([
+          ["a", "b"],
+          ["1", "2"],
+        ]);
+      });
+
+      it("parses string chunks split on record boundaries", async function () {
+        const records = await collect(
+          ReadableStream.from(["a,b\n", "1,2\n"]),
+        );
+        records.should.eql([
+          ["a", "b"],
+          ["1", "2"],
+        ]);
+      });
+
+      it("parses string chunks split in the middle of a field", async function () {
+        const records = await collect(ReadableStream.from(["a", ",b", "\n1", ",2"]));
+        records.should.eql([
+          ["a", "b"],
+          ["1", "2"],
+        ]);
+      });
+
+      it("parses multibyte characters", async function () {
+        const records = await collect(
+          ReadableStream.from(["名称,数量\n", "螺丝,3\n"]),
+          { columns: true },
+        );
+        records.should.eql([{ 名称: "螺丝", 数量: "3" }]);
+      });
+
+      it("parses multibyte characters split across decoded chunks", async function () {
+        // TextDecoderStream buffers partial characters, but emitted string
+        // chunks may start and end at arbitrary byte boundaries of the
+        // original stream; chunk the raw bytes mid-character. The first
+        // chunk contains part of the header so parsing spans both chunks.
+        const bytes = new TextEncoder().encode("名称,数量\n螺丝,3\n");
+        const sources = [bytes.slice(0, 4), bytes.slice(4)];
+        new TextDecoder()
+          .decode(sources[0])
+          .should.eql("名�"); // ends mid-character if decoded naively
+        const records = await collect(
+          ReadableStream.from(sources).pipeThrough(new TextDecoderStream()),
+          { columns: true },
+        );
+        records.should.eql([{ 名称: "螺丝", 数量: "3" }]);
+      });
+
+      it("parses chunks emitted by TextDecoderStream", async function () {
+        const bytes = new TextEncoder().encode("名称,数量\n螺丝,3\n");
+        const records = await collect(
+          ReadableStream.from([bytes]).pipeThrough(new TextDecoderStream()),
+          { columns: true },
+        );
+        records.should.eql([{ 名称: "螺丝", 数量: "3" }]);
+      });
+
+      it("parses Uint8Array chunks", async function () {
+        const records = await collect(
+          ReadableStream.from([new TextEncoder().encode("a,b\n1,2\n")]),
+        );
+        records.should.eql([
+          ["a", "b"],
+          ["1", "2"],
+        ]);
+      });
     });
-    const parser = parseStream();
-    const stream = generator.pipeThrough(parser);
-    const records = [];
-    for await (const record of stream) {
-      records.push(record);
-    }
-    records.length.should.eql(5);
   });
-
-  // it('perf stream with reader', async function() {
-  //   const generator = generateStream({
-  //     objectMode: true,
-  //     length: 10
-  //   });
-  //   const records = [];
-  //   const reader = generator.getReader();
-  //   while (true) {
-  //     const { done, record } = await reader.read();
-  //     if (done) break;
-  //     records.push(record);
-  //   }
-  //   records.length.should.eql(10);
-  // });
 });

@@ -1,6 +1,15 @@
-import { Options } from "./index.js";
+import { Options, OptionsWithColumns } from "./index.js";
 
-declare function parse(options?: Options): TransformStream;
+// Web Streams emit records in object mode. Without `columns`, records are
+// arrays of strings. With `columns`, records are objects whose keys are the
+// column names.
+declare function parse(options?: Options): TransformStream<
+  Buffer | Uint8Array | string,
+  string[]
+>;
+declare function parse<T = unknown, U = T>(
+  options: OptionsWithColumns<T, U>,
+): TransformStream<Buffer | Uint8Array | string, T>;
 
 export { parse };
 
