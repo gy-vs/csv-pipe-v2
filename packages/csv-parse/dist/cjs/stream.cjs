@@ -2003,15 +2003,30 @@ const parse = (opts) => {
       start(ctr) {
         controller = ctr;
       },
+      // The parser operates on bytes. Node streams transparently convert
+      // string chunks to buffers using the stream default encoding (utf8),
+      // Web Streams do not, hence the conversion here. TextDecoderStream
+      // only emits chunks that are valid unicode and never splits a
+      // multibyte character across chunks.
       transform(chunk) {
-        const error = api.parse(chunk, false, enqueue, terminate);
-        if (error) {
+        try {
+          const buf =
+            typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
+          const error = api.parse(buf, false, enqueue, terminate);
+          if (error) {
+            controller.error(error);
+          }
+        } catch (error) {
           controller.error(error);
         }
       },
       flush() {
-        const error = api.parse(undefined, true, enqueue, terminate);
-        if (error) {
+        try {
+          const error = api.parse(undefined, true, enqueue, terminate);
+          if (error) {
+            controller.error(error);
+          }
+        } catch (error) {
           controller.error(error);
         }
       },

@@ -38,5 +38,48 @@ describe("API Web Stream", function () {
         err.code.should.eql("CSV_RECORD_INCONSISTENT_FIELDS_LENGTH");
       }
     });
+
+    it("accepts string chunks", async function () {
+      const stream = parseStream();
+      const writer = stream.writable.getWriter();
+      // TextDecoderStream emits strings, no manual cast expected
+      await writer.write("A,B,C\nD,E,F\n");
+      await writer.close();
+      const records: string[][] = [];
+      for await (const record of stream.readable) {
+        records.push(record);
+      }
+      records.should.eql([
+        ["A", "B", "C"],
+        ["D", "E", "F"],
+      ]);
+    });
+
+    it("infers object records with `columns: true`", async function () {
+      const stream = parseStream({ columns: true });
+      const writer = stream.writable.getWriter();
+      await writer.write("名称,数量\n螺丝,3\n");
+      await writer.close();
+      const records: Record<string, string>[] = [];
+      for await (const record of stream.readable) {
+        // Property access without manual assertion
+        record.名称;
+        records.push(record);
+      }
+      records.should.eql([{ 名称: "螺丝", 数量: "3" }]);
+    });
+
+    it("infers object records from named columns", async function () {
+      const stream = parseStream({ columns: ["name", "count"] });
+      const writer = stream.writable.getWriter();
+      await writer.write("螺丝,3\n");
+      await writer.close();
+      for await (const record of stream.readable) {
+        const name: string = record.name;
+        const count: string = record.count;
+        name.should.eql("螺丝");
+        count.should.eql("3");
+      }
+    });
   });
 });

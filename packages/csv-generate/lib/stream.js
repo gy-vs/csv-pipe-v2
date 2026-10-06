@@ -12,11 +12,27 @@ const generate = (opts) => {
           state,
           1024,
           function (chunk) {
-            chunk = Buffer.from(chunk);
+            // Mirror the Node.js Readable behavior: in object mode, records
+            // are enqueued as-is. Otherwise, strings are converted to
+            // buffers, unless `encoding` is set in which case chunks are
+            // converted to strings using that encoding.
+            if (!options.objectMode) {
+              if (options.encoding) {
+                chunk = Buffer.isBuffer(chunk)
+                  ? chunk.toString(options.encoding)
+                  : String(chunk);
+              } else {
+                chunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+              }
+            }
             controller.enqueue(chunk);
           },
-          function () {
-            controller.close();
+          function (err) {
+            if (err) {
+              controller.error(err);
+            } else {
+              controller.close();
+            }
           },
         );
       },
